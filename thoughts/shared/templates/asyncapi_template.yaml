@@ -1,0 +1,120 @@
+asyncapi: 3.0.0
+info:
+  title: "<SERVICE_NAME> Event Messaging Contract"
+  version: "1.0.0"
+  description: |
+    Canonical AsyncAPI Event Contract for <SERVICE_NAME>.
+    Specifies event schemas, headers, channels, and delivery guarantees.
+    Governed by System Architect.
+
+servers:
+  development:
+    host: localhost:6379
+    protocol: redis
+    description: Local Event Broker (Redis / RabbitMQ)
+  production:
+    host: broker.internal:9092
+    protocol: kafka
+    description: Production Event Stream
+
+channels:
+  <DOMAIN>Events:
+    address: "<DOMAIN>.events.v1"
+    messages:
+      <RESOURCE>CreatedEvent:
+        $ref: '#/components/messages/<RESOURCE>Created'
+      <RESOURCE>UpdatedEvent:
+        $ref: '#/components/messages/<RESOURCE>Updated'
+      <RESOURCE>StatusChangedEvent:
+        $ref: '#/components/messages/<RESOURCE>StatusChanged'
+
+operations:
+  on<RESOURCE>Created:
+    action: receive
+    channel:
+      $ref: '#/channels/<DOMAIN>Events'
+    messages:
+      - $ref: '#/channels/<DOMAIN>Events/messages/<RESOURCE>CreatedEvent'
+    summary: Emitted immediately after <RESOURCE> is created and transaction committed (Outbox pattern).
+
+components:
+  messages:
+    <RESOURCE>Created:
+      name: "<RESOURCE>Created"
+      title: "<RESOURCE> Created Event"
+      summary: Notifies downstream bounded contexts that a new <RESOURCE> exists
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/StandardEventHeaders'
+      payload:
+        type: object
+        required: [entityId, createdAt, data]
+        properties:
+          entityId:
+            type: string
+            example: "res_01HZX8N6W"
+          createdAt:
+            type: string
+            format: date-time
+          data:
+            type: object
+            description: Entity snapshot at event creation
+
+    <RESOURCE>Updated:
+      name: "<RESOURCE>Updated"
+      title: "<RESOURCE> Updated Event"
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/StandardEventHeaders'
+      payload:
+        type: object
+        required: [entityId, updatedAt, changedFields]
+        properties:
+          entityId: { type: string }
+          updatedAt: { type: string, format: date-time }
+          changedFields:
+            type: array
+            items: { type: string }
+
+    <RESOURCE>StatusChanged:
+      name: "<RESOURCE>StatusChanged"
+      title: "<RESOURCE> Status Changed Event"
+      contentType: application/json
+      headers:
+        $ref: '#/components/schemas/StandardEventHeaders'
+      payload:
+        type: object
+        required: [entityId, previousStatus, newStatus, changedAt, reason]
+        properties:
+          entityId: { type: string }
+          previousStatus: { type: string }
+          newStatus: { type: string }
+          changedAt: { type: string, format: date-time }
+          reason: { type: string }
+
+  schemas:
+    StandardEventHeaders:
+      type: object
+      required: [eventId, eventType, timestamp, correlationId, producer]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          example: "<DOMAIN>.<RESOURCE>.created"
+        timestamp:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+          format: uuid
+        causationId:
+          type: string
+          format: uuid
+        producer:
+          type: string
+          example: "<SERVICE_NAME>"
+        schemaVersion:
+          type: string
+          example: "1.0.0"

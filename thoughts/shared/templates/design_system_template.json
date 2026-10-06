@@ -1,0 +1,84 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "name": "HumanLayer Canonical Design Tokens",
+  "version": "1.0.0",
+  "description": "Standardized token schema for cross-platform UI engineering and Tailwind CSS interoperability.",
+  "tokens": {
+    "color": {
+      "brand": {
+        "primary": { "value": "#2563EB", "description": "Primary action and brand accent. Contrast ratio 4.5:1 on white." },
+        "primary-hover": { "value": "#1D4ED8", "description": "Primary hover state." },
+        "primary-active": { "value": "#1E40AF", "description": "Primary active/pressed state." },
+        "secondary": { "value": "#4F46E5", "description": "Secondary accent for tags and highlights." }
+      },
+      "neutral": {
+        "bg-canvas": { "value": "#0F172A", "description": "Root dark background canvas." },
+        "bg-surface": { "value": "#1E293B", "description": "Card, panel, and modal surface." },
+        "bg-subtle": { "value": "#334155", "description": "Subtle borders and input backgrounds." },
+        "text-primary": { "value": "#F8FAFC", "description": "High-emphasis heading and body text." },
+        "text-secondary": { "value": "#94A3B8", "description": "Medium-emphasis labels and hints." },
+        "text-muted": { "value": "#64748B", "description": "Disabled text and placeholders." }
+      },
+      "semantic": {
+        "success": { "value": "#10B981", "description": "Success messages, completed status badges." },
+        "warning": { "value": "#F59E0B", "description": "Pending approvals, warning banners." },
+        "error": { "value": "#EF4444", "description": "Destructive actions, error toasts, failed checks." },
+        "info": { "value": "#38BDF8", "description": "Informational badges and tips." }
+      }
+    },
+    "typography": {
+      "fontFamily": {
+        "sans": { "value": ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"] },
+        "mono": { "value": ["JetBrains Mono", "Fira Code", "ui-monospace", "monospace"] }
+      },
+      "fontSize": {
+        "xs": { "value": "0.75rem", "lineHeight": "1rem" },
+        "sm": { "value": "0.875rem", "lineHeight": "1.25rem" },
+        "base": { "value": "1rem", "lineHeight": "1.5rem" },
+        "lg": { "value": "1.125rem", "lineHeight": "1.75rem" },
+        "xl": { "value": "1.25rem", "lineHeight": "1.75rem" },
+        "2xl": { "value": "1.5rem", "lineHeight": "2rem" },
+        "3xl": { "value": "1.875rem", "lineHeight": "2.25rem" }
+      },
+      "fontWeight": {
+        "regular": { "value": 400 },
+        "medium": { "value": 500 },
+        "semibold": { "value": 600 },
+        "bold": { "value": 700 }
+      }
+    },
+    "spacing": {
+      "scale": "8px base grid",
+      "0": { "value": "0px" },
+      "1": { "value": "4px" },
+      "2": { "value": "8px" },
+      "3": { "value": "12px" },
+      "4": { "value": "16px" },
+      "6": { "value": "24px" },
+      "8": { "value": "32px" },
+      "12": { "value": "48px" },
+      "16": { "value": "64px" }
+    },
+    "borderRadius": {
+      "none": { "value": "0px" },
+      "sm": { "value": "4px" },
+      "md": { "value": "8px" },
+      "lg": { "value": "12px" },
+      "xl": { "value": "16px" },
+      "full": { "value": "9999px" }
+    },
+    "elevation": {
+      "sm": { "value": "0 1px 2px 0 rgba(0, 0, 0, 0.05)" },
+      "md": { "value": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)" },
+      "lg": { "value": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)" },
+      "xl": { "value": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }
+    },
+    "breakpoints": {
+      "sm": { "value": "640px" },
+      "md": { "value": "768px" },
+      "lg": { "value": "1024px" },
+      "xl": { "value": "1280px" },
+      "2xl": { "value": "1536px" }
+    }
+  }
+}

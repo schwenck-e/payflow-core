@@ -1,0 +1,211 @@
+openapi: 3.1.0
+info:
+  title: PayFlow Core Platform REST API Contract
+  description: |
+    Canonical REST API Specification for PayFlow Core - Gateway de Pagamentos e Double-Entry Ledger Imutável.
+    Conformidade com RFC 7807 (Problem Details), HMAC-SHA256 para webhooks e Idempotency-Key.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local Development Engine
+  - url: https://api.payflowcore.internal/v1
+    description: Production Environment
+
+tags:
+  - name: Charges
+    description: Criação, captura e estorno de cobranças (Pix, Boleto, Cartão)
+  - name: Ledger
+    description: Plano de contas, lançamentos de partidas dobradas e extrato contábil
+  - name: Merchants & API Keys
+    description: Gestão de credenciais e estabelecimentos
+  - name: Health & Operations
+    description: Verificação de liveness e readiness
+
+paths:
+  /health/liveness:
+    get:
+      summary: Liveness Probe
+      tags: [Health & Operations]
+      responses:
+        '200':
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  timestamp: { type: string, format: date-time }
+
+  /health/readiness:
+    get:
+      summary: Readiness Probe
+      tags: [Health & Operations]
+      responses:
+        '200':
+          description: Database and services are ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+                  database: { type: string, example: "connected" }
+                  timestamp: { type: string, format: date-time }
+
+  /charges:
+    post:
+      summary: Criar ou processar uma cobrança com idempotência
+      tags: [Charges]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_in_cents, currency, payment_method, customer]
+              properties:
+                amount_in_cents: { type: integer, minimum: 100, example: 10000 }
+                currency: { type: string, default: "BRL", example: "BRL" }
+                payment_method: { type: string, enum: [PIX, CREDIT_CARD, BOLETO] }
+                customer:
+                  type: object
+                  required: [name, email, document]
+                  properties:
+                    name: { type: string, example: "João da Silva" }
+                    email: { type: string, format: email, example: "joao@example.com" }
+                    document: { type: string, example: "12345678909" }
+                card:
+                  type: object
+                  properties:
+                    number: { type: string, example: "4532000000001234" }
+                    holder_name: { type: string, example: "JOAO SILVA" }
+                    exp_month: { type: integer, minimum: 1, maximum: 12, example: 12 }
+                    exp_year: { type: integer, minimum: 2026, example: 2028 }
+                    cvv: { type: string, example: "123" }
+                capture: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Cobrança gerada ou processada com sucesso
+        '409':
+          description: Conflito de Idempotency-Key (Payload mismatch ou lock em andamento)
+
+  /charges/{id}/refund:
+    post:
+      summary: Estorno total ou parcial de cobrança com reversão no Ledger
+      tags: [Charges]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_in_cents, reason]
+              properties:
+                amount_in_cents: { type: integer, minimum: 1, example: 5000 }
+                reason: { type: string, example: "Devolução solicitada pelo comprador" }
+      responses:
+        '200':
+          description: Estorno efetuado e compensação contábil postada
+
+  /accounts:
+    post:
+      summary: Criar conta contábil no plano de contas
+      tags: [Ledger]
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name, type, currency]
+              properties:
+                code: { type: string, example: "1.1.01.001" }
+                name: { type: string, example: "Wallet Principal do Merchant" }
+                type: { type: string, enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE] }
+                currency: { type: string, default: "BRL" }
+                allow_overdraft: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Conta contábil criada com sucesso
+
+  /accounts/{id}/balance:
+    get:
+      summary: Consultar saldo consolidado da conta contábil
+      tags: [Ledger]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Saldo em centavos e metadata
+
+  /ledger/transactions:
+    post:
+      summary: Registrar lançamento de partidas dobradas (Double-Entry Posting)
+      tags: [Ledger]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, description, entries]
+              properties:
+                type: { type: string, enum: [PAYMENT_CAPTURE, REFUND, PAYOUT, FEE_ASSESSMENT, MANUAL_ADJUSTMENT] }
+                description: { type: string, example: "Transferência interna de fundos" }
+                reference_type: { type: string }
+                reference_id: { type: string }
+                entries:
+                  type: array
+                  minItems: 2
+                  items:
+                    type: object
+                    required: [account_id, direction, amount_in_cents]
+                    properties:
+                      account_id: { type: string }
+                      direction: { type: string, enum: [DEBIT, CREDIT] }
+                      amount_in_cents: { type: integer, minimum: 1 }
+      responses:
+        '201':
+          description: Lançamento de partidas dobradas confirmado (Soma Débitos == Soma Créditos)
+        '422':
+          description: Lançamento desbalanceado violando RN-001 (LEDGER_UNBALANCED_TRANSACTION)
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: API Key do Merchant

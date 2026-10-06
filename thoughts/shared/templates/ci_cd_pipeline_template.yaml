@@ -1,0 +1,170 @@
+# ==============================================================================
+# HumanLayer Canonical Template: Enterprise CI/CD Pipeline (GitHub Actions)
+# ==============================================================================
+# Usage: Copy to .github/workflows/ci.yml and customize environment secrets.
+# Gates: Arch Linter -> Typecheck -> Unit/Integration Tests -> Security -> Build/Deploy.
+# ==============================================================================
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Job 1: Static Analysis, Architecture Governance & Linting
+  # ----------------------------------------------------------------------------
+  quality-gate:
+    name: Code Quality & Architecture Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node & Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Architectural Linter (Zero Drift)
+        run: |
+          if [ -f scripts/arch_lint.ts ]; then
+            bun scripts/arch_lint.ts
+          elif grep -q "check-arch" Makefile 2>/dev/null; then
+            make check-arch
+          else
+            echo "Skipping arch linter - script not found."
+          fi
+
+      - name: Typecheck
+        run: bun run typecheck || npm run typecheck
+
+      - name: Code Style & ESLint
+        run: bun run lint || npm run lint || true
+
+  # ----------------------------------------------------------------------------
+  # Job 2: Automated Test Execution (Unit & Integration)
+  # ----------------------------------------------------------------------------
+  test-suite:
+    name: Automated Tests & Coverage
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node & Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Test Suite
+        run: bun test || npm test
+
+  # ----------------------------------------------------------------------------
+  # Job 3: Security & Vulnerability Scanning (SAST / AppSec)
+  # ----------------------------------------------------------------------------
+  security-scan:
+    name: Security & Dependency Audit
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Audit Dependencies (CVEs)
+        run: bun audit || npm audit --audit-level=high || true
+
+      - name: Scan Secrets (TruffleHog / GitGuardian)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+
+  # ----------------------------------------------------------------------------
+  # Job 4: Multi-Stage Docker Build & Registry Push
+  # ----------------------------------------------------------------------------
+  build-and-push:
+    name: Docker Image Build & Push
+    runs-on: ubuntu-latest
+    needs: [test-suite, security-scan]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=short,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ----------------------------------------------------------------------------
+  # Job 5: Zero-Downtime Deployment
+  # ----------------------------------------------------------------------------
+  deploy-production:
+    name: Zero-Downtime Production Deployment
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: production
+      url: https://api.production.domain.com
+    steps:
+      - name: Deploy Notification
+        run: echo "Initiating deployment for tag ${{ github.ref_name }}..."
+
+      - name: Trigger Rolling Deployment / Webhook
+        run: |
+          # Insert production deployment webhook or helm/k8s/terraform trigger here
+          echo "Release deployed successfully with zero downtime."

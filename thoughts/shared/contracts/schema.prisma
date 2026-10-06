@@ -1,0 +1,206 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum EntryDirection {
+  DEBIT
+  CREDIT
+}
+
+enum TransactionType {
+  PAYMENT_CAPTURE
+  REFUND
+  PAYOUT
+  FEE_ASSESSMENT
+  MANUAL_ADJUSTMENT
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  BOLETO
+}
+
+enum ChargeStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Merchant {
+  id          String   @id @default(uuid())
+  name        String
+  document    String   @unique
+  email       String   @unique
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  apiKeys           ApiKey[]
+  accounts          Account[]
+  charges           Charge[]
+  idempotencyRecords IdempotencyRecord[]
+  webhookEndpoints  WebhookEndpoint[]
+
+  @@map("merchants")
+}
+
+model ApiKey {
+  id          String   @id @default(uuid())
+  merchantId  String   @map("merchant_id")
+  name        String
+  keyPrefix   String   @map("key_prefix")
+  keyHash     String   @unique @map("key_hash")
+  revoked     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  merchant    Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+model Account {
+  id                  String      @id @default(uuid())
+  merchantId          String?     @map("merchant_id")
+  code                String      @unique
+  name                String
+  type                AccountType
+  currency            String      @default("BRL")
+  allowOverdraft      Boolean     @default(false) @map("allow_overdraft")
+  currentBalanceCents BigInt      @default(0) @map("current_balance_cents")
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  merchant            Merchant?   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  entries             LedgerEntry[]
+
+  @@map("accounts")
+}
+
+model LedgerTransaction {
+  id            String          @id @default(uuid())
+  referenceType String?         @map("reference_type")
+  referenceId   String?         @map("reference_id")
+  type          TransactionType
+  description   String
+  postedAt      DateTime        @default(now()) @map("posted_at")
+
+  entries       LedgerEntry[]
+
+  @@map("ledger_transactions")
+}
+
+model LedgerEntry {
+  id            String          @id @default(uuid())
+  transactionId String          @map("transaction_id")
+  accountId     String          @map("account_id")
+  direction     EntryDirection
+  amountCents   BigInt          @map("amount_cents")
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account       Account           @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@map("ledger_entries")
+}
+
+model Charge {
+  id              String        @id @default(uuid())
+  merchantId      String        @map("merchant_id")
+  amountCents     BigInt        @map("amount_cents")
+  feeAmountCents  BigInt        @default(0) @map("fee_amount_cents")
+  netAmountCents  BigInt        @default(0) @map("net_amount_cents")
+  currency        String        @default("BRL")
+  paymentMethod   PaymentMethod @map("payment_method")
+  status          ChargeStatus  @default(PENDING)
+  customerName    String?       @map("customer_name")
+  customerEmail   String?       @map("customer_email")
+  customerDoc     String?       @map("customer_doc")
+  cardLast4       String?       @map("card_last4")
+  cardBrand       String?       @map("card_brand")
+  pixQrCode       String?       @map("pix_qr_code")
+  boletoBarcode   String?       @map("boleto_barcode")
+  ledgerTxId      String?       @map("ledger_tx_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  paidAt          DateTime?     @map("paid_at")
+  updatedAt       DateTime      @updatedAt
+
+  merchant        Merchant      @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  refunds         Refund[]
+
+  @@map("charges")
+}
+
+model Refund {
+  id          String   @id @default(uuid())
+  chargeId    String   @map("charge_id")
+  amountCents BigInt   @map("amount_cents")
+  reason      String
+  ledgerTxId  String?  @map("ledger_tx_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  charge      Charge   @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+
+  @@map("refunds")
+}
+
+model IdempotencyRecord {
+  id                 String    @id @default(uuid())
+  merchantId         String    @map("merchant_id")
+  idempotencyKey     String    @map("idempotency_key")
+  requestHash        String    @map("request_hash")
+  status             String    @default("IN_PROGRESS")
+  responseStatusCode Int?      @map("response_status_code")
+  responseBody       String?   @map("response_body")
+  expiresAt          DateTime  @map("expires_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  merchant           Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, idempotencyKey])
+  @@map("idempotency_records")
+}
+
+model WebhookEndpoint {
+  id          String            @id @default(uuid())
+  merchantId  String            @map("merchant_id")
+  url         String
+  secret      String
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+
+  merchant    Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  deliveries  WebhookDelivery[]
+
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String          @id @default(uuid())
+  endpointId  String          @map("endpoint_id")
+  eventType   String          @map("event_type")
+  payload     String
+  statusCode  Int?            @map("status_code")
+  success     Boolean         @default(false)
+  attempts    Int             @default(1)
+  deliveredAt DateTime        @default(now()) @map("delivered_at")
+
+  endpoint    WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@map("webhook_deliveries")
+}
