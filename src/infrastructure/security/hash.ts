@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 
 export class SecurityService {
   /**
@@ -16,11 +16,15 @@ export class SecurityService {
   }
 
   /**
-   * Verifica assinatura HMAC em tempo constante mitigando timing attacks
+   * Verifica assinatura HMAC em tempo constante mitigando timing attacks (CWE-208 / OWASP A02)
    */
   public static verifyHmacSignature(payload: string, secret: string, expectedSignature: string): boolean {
-    const computedSignature = this.generateHmacSignature(payload, secret);
-    return computedSignature === expectedSignature;
+    const computed = Buffer.from(this.generateHmacSignature(payload, secret), "hex");
+    const expected = Buffer.from(expectedSignature, "hex");
+    if (computed.length !== expected.length) {
+      return false;
+    }
+    return timingSafeEqual(computed, expected);
   }
 
   /**

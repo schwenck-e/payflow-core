@@ -60,31 +60,46 @@ export class LedgerService {
         },
       });
 
-      // Processa cada lançamento de débito ou crédito
-      for (const entry of domainTx.entries) {
-        const rawAccount = await tx.account.findUnique({
-          where: { id: entry.accountId },
-        });
+      // Processa cada lançamento de débito ou crédito ordenado deterministicamente por accountId
+      // para prevenir deadlocks em transferências concorrentes cruzadas (A->B vs B->A)
+      // e assegurar a consistência transacional e integridade contábil (RN-001 e RN-004)
+      const sortedEntries = [...domainTx.entries].sort((a, b) =>
+        a.accountId.localeCompare(b.accountId)
+      );
 
-        if (!rawAccount) {
-          throw new AccountNotFoundError(entry.accountId);
+      const accountsMap = new Map<string, Account>();
+
+      for (const entry of sortedEntries) {
+        let accountEntity = accountsMap.get(entry.accountId);
+
+        if (!accountEntity) {
+          const rawAccount = await tx.account.findUnique({
+            where: { id: entry.accountId },
+          });
+
+          if (!rawAccount) {
+            throw new AccountNotFoundError(entry.accountId);
+          }
+
+          accountEntity = new Account({
+            id: rawAccount.id,
+            merchantId: rawAccount.merchantId,
+            code: rawAccount.code,
+            name: rawAccount.name,
+            type: rawAccount.type,
+            currency: rawAccount.currency,
+            allowOverdraft: rawAccount.allowOverdraft,
+            currentBalanceCents: rawAccount.currentBalanceCents,
+          });
+
+          accountsMap.set(entry.accountId, accountEntity);
         }
 
-        const accountEntity = new Account({
-          id: rawAccount.id,
-          merchantId: rawAccount.merchantId,
-          code: rawAccount.code,
-          name: rawAccount.name,
-          type: rawAccount.type,
-          currency: rawAccount.currency,
-          allowOverdraft: rawAccount.allowOverdraft,
-          currentBalanceCents: rawAccount.currentBalanceCents,
-        });
+        // Valida e aplica o impacto contábil no saldo (lança NegativeBalanceNotAllowedError na violação de RN-004)
+        accountEntity.applyBalanceDelta(entry.direction, entry.amountCents);
+        const newBalance = accountEntity.currentBalanceCents;
 
-        // Valida e calcula o novo saldo (lança erro se violar RN-004)
-        const newBalance = accountEntity.calculateNewBalance(entry.direction, entry.amountCents);
-
-        // Insere a entrada contábil (Append-Only)
+        // Insere a entrada contábil (Append-Only - RN-002)
         await tx.ledgerEntry.create({
           data: {
             id: entry.id,
@@ -98,7 +113,7 @@ export class LedgerService {
 
         // Atualiza o snapshot de saldo da conta
         await tx.account.update({
-          where: { id: rawAccount.id },
+          where: { id: accountEntity.id },
           data: { currentBalanceCents: newBalance },
         });
       }

@@ -2,6 +2,7 @@ import { prisma } from "../../infrastructure/database/prisma";
 import { SecurityService } from "../../infrastructure/security/hash";
 import { IdempotencyRecord } from "../entities/idempotency.entity";
 import { IdempotencyConflictError } from "../errors/domain.errors";
+import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 
 export interface IdempotencyExecutionResult<T> {
@@ -34,6 +35,9 @@ export class IdempotencyService {
       },
     });
 
+    let recordId: string;
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 horas de retenção
+
     if (existing) {
       const record = new IdempotencyRecord({
         id: existing.id,
@@ -63,35 +67,119 @@ export class IdempotencyService {
       if (record.status === "IN_PROGRESS") {
         throw new IdempotencyConflictError(idempotencyKey);
       }
+
+      // Se um registro prévio estiver com status FAILED, adquire lock de forma atômica
+      const updateResult = await prisma.idempotencyRecord.updateMany({
+        where: {
+          id: existing.id,
+          status: "FAILED",
+        },
+        data: {
+          status: "IN_PROGRESS",
+          requestHash,
+          expiresAt,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new IdempotencyConflictError(idempotencyKey);
+      }
+
+      recordId = existing.id;
+    } else {
+      // 3. Adquire lock gravando status IN_PROGRESS de forma ATÔMICA via create
+      const newRecordId = randomUUID();
+
+      try {
+        const created = await prisma.idempotencyRecord.create({
+          data: {
+            id: newRecordId,
+            merchantId,
+            idempotencyKey,
+            requestHash,
+            status: "IN_PROGRESS",
+            expiresAt,
+          },
+        });
+        recordId = created.id;
+      } catch (err: any) {
+        // Se o create falhar por violação de constraint única (P2002), requisição concorrente inseriu simultaneamente
+        const isUniqueViolation =
+          (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") ||
+          err?.code === "P2002";
+
+        if (isUniqueViolation) {
+          const concurrent = await prisma.idempotencyRecord.findUnique({
+            where: {
+              merchantId_idempotencyKey: {
+                merchantId,
+                idempotencyKey,
+              },
+            },
+          });
+
+          if (!concurrent) {
+            throw err;
+          }
+
+          const concurrentRecord = new IdempotencyRecord({
+            id: concurrent.id,
+            merchantId: concurrent.merchantId,
+            idempotencyKey: concurrent.idempotencyKey,
+            requestHash: concurrent.requestHash,
+            status: concurrent.status as "IN_PROGRESS" | "COMPLETED" | "FAILED",
+            responseStatusCode: concurrent.responseStatusCode,
+            responseBody: concurrent.responseBody,
+            expiresAt: concurrent.expiresAt,
+            createdAt: concurrent.createdAt,
+          });
+
+          concurrentRecord.validatePayloadMatch(requestHash);
+
+          if (
+            concurrentRecord.status === "COMPLETED" &&
+            concurrentRecord.responseBody &&
+            concurrentRecord.responseStatusCode
+          ) {
+            return {
+              statusCode: concurrentRecord.responseStatusCode,
+              data: JSON.parse(concurrentRecord.responseBody) as T,
+              isCached: true,
+            };
+          }
+
+          if (concurrentRecord.status === "IN_PROGRESS") {
+            throw new IdempotencyConflictError(idempotencyKey);
+          }
+
+          if (concurrentRecord.status === "FAILED") {
+            const updateResult = await prisma.idempotencyRecord.updateMany({
+              where: {
+                id: concurrent.id,
+                status: "FAILED",
+              },
+              data: {
+                status: "IN_PROGRESS",
+                requestHash,
+                expiresAt,
+              },
+            });
+
+            if (updateResult.count === 0) {
+              throw new IdempotencyConflictError(idempotencyKey);
+            }
+
+            recordId = concurrent.id;
+          } else {
+            throw new IdempotencyConflictError(idempotencyKey);
+          }
+        } else {
+          throw err;
+        }
+      }
     }
 
-    // 3. Adquire lock gravando status IN_PROGRESS
-    const recordId = existing?.id ?? randomUUID();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 horas de retenção
-
-    await prisma.idempotencyRecord.upsert({
-      where: {
-        merchantId_idempotencyKey: {
-          merchantId,
-          idempotencyKey,
-        },
-      },
-      update: {
-        status: "IN_PROGRESS",
-        requestHash,
-        expiresAt,
-      },
-      create: {
-        id: recordId,
-        merchantId,
-        idempotencyKey,
-        requestHash,
-        status: "IN_PROGRESS",
-        expiresAt,
-      },
-    });
-
-    // 4. Executa a lógica de negócio
+    // 4. Executa a lógica de negócio protegida
     try {
       const result = await handler();
 

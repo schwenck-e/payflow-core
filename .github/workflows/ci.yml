@@ -11,6 +11,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DATABASE_URL: "file:./dev.db"
+
 jobs:
   quality-gate:
     name: 🛡️ Quality & Architecture Gate
