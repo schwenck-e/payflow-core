@@ -44,6 +44,7 @@
 | **10** | Deploy Zero-Downtime & Runbook | `devops_sre` | `/deploy_release` | ✅ CONCLUÍDO | Git Tag `v1.0.0` (commit `acf18b1`) e Runbook validado |
 | **11** | UAT Sign-Off & Handover Day-2 (TEP)| `systems_analyst` | `/project_closeout` | ✅ CONCLUÍDO | `thoughts/shared/governance/2026-10-06-project-closeout.md` |
 | **12** | Encerramento Oficial no Linear | `product_manager` | `/close_epic` | ✅ CONCLUÍDO | ENG-45 a ENG-53 marcadas como Done |
+| **13** | Remediação: Concorrência, SAST & PR | `software_engineer` & `qa_engineer` | `/autonomous_delivery` | ✅ CONCLUÍDO | PR #1 no GitHub, 24/24 testes verdes, SAST audit |
 
 ---
 
@@ -61,3 +62,14 @@
   - Imagem Docker multi-stage e docker-compose validados.
   - Runbook de Operações preenchido (`thoughts/shared/runbooks/2026-10-06-v1.0.0-release-runbook.md`).
 - **Status do Gate:** `[APROVADO]` ✅
+
+---
+
+## 🔧 4. Remediation & Concurrency Hardening (Sprint Hotfix)
+
+- **Pull Request no GitHub:** [PR #1: fix(core): remediate TOCTOU race condition in idempotency, add ledger concurrency tests and SAST audit](https://github.com/schwenck-e/payflow-core/pull/1)
+- **Branch Alvo:** `main` ⬅️ `feature/ENG-54-ENG-55-remediation-concurrency-sast`
+- **Resultados de Testes:** **24 pass / 0 fail** (100% verde em 9 arquivos de teste)
+- **Linters:** Zero Architectural Drift (Score: 100/100) & TypeScript strict mode 0 erros
+- **Linear Sync:** Tickets de remediação criados e vinculados (ENG-54, ENG-55, ENG-56) e backlog decomposto com 12 Task Contracts em `thoughts/shared/tickets/`.
+
