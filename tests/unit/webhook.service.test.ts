@@ -15,5 +15,13 @@ describe("Webhook Signature & HMAC-SHA256", () => {
 
     const isInvalid = SecurityService.verifyHmacSignature(payload, "wrong_secret", signature);
     expect(isInvalid).toBe(false);
+
+    // Assinatura com tamanho diferente (deve retornar false com segurança)
+    const shortSignature = "abcd";
+    expect(SecurityService.verifyHmacSignature(payload, secret, shortSignature)).toBe(false);
+
+    // Assinatura com mesmo tamanho (64 chars) porém bytes adulterados
+    const tamperedSignature = signature.substring(0, 63) + (signature[63] === "0" ? "1" : "0");
+    expect(SecurityService.verifyHmacSignature(payload, secret, tamperedSignature)).toBe(false);
   });
 });
